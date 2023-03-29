@@ -1,12 +1,28 @@
-import { palettes, users } from "../database/models.js";
-import { getUser } from "../controllers/UsersControllers.js";
+import { palettes } from "../database/models.js";
+import { getUser, CreatePalette } from "../controllers/UsersControllers.js";
 export const getPalettes = async (req, res) => {
-  const response = await palettes.find();
+  console.log("entro a getAll");
+  if (!req.body.min || !req.body.max) {
+    return res.status(400).send("Please enter a min and a max");
+  }
+  const response = await palettes.find().skip(req.body.min).limit(req.body.max);
+
   res.json(response);
 };
 export const getOnePalette = async (req, res) => {
   const response = getPalette(req.params.name);
   res.json(response);
+};
+export const getPalettesByUsers = async (req, res) => {
+  if (!req.body.email || !req.body.password)
+    return res.status(400).send("insufficient credentials.");
+  const user = await getUser(req.body.email, req.body.password);
+  if (!user)
+    return res.status(400).send(`Please login to create a new palette.`);
+  const response = await palettes.find({ author: user._id });
+  if (!response)
+    return res.status(400).json({ message: "No palettes to show." });
+  return res.json(response);
 };
 export const createPalettes = async (req, res) => {
   if (!req.body.name)
@@ -18,17 +34,19 @@ export const createPalettes = async (req, res) => {
       .status(400)
       .send(`Please enter a list of colors for the palette.`);
 
-  if (!getPalette(req.body.name))
+  const palettefounded = await getPalette(req.body.name);
+
+  if (palettefounded)
     return res
       .status(400)
       .send(`This name (${req.body.name}) is already taken.`);
-  console.log("paso");
-  const user = getUser(req.body.author.email, req.body.author.password);
+  const user = await getUser(req.body.author.email, req.body.author.password);
   if (!user)
     return res.status(400).send(`Please login to create a new palette.`);
+  await palettes.create(req.body);
+  await CreatePalette(user.email, user.password, req.body.name);
 
-  const response = await palettes.create(req.body);
-  res.json(response);
+  res.send("Palette created");
 };
 export const updatePalettes = async (req, res) => {
   if (!req.body.name) return res.status(400).send("Please enter a name.");
@@ -62,8 +80,44 @@ export const deletePalettes = async (req, res) => {
 
   return res.status(400).send("the palette was not deleted");
 };
+export const getSavedPalettes = async (req, res) => {
+  if (!req.body.email || !req.body.password)
+    return res.status(400).send("insufficient credentials.");
+  const user = await getUser(req.body.email, req.body.password);
+  if (!user)
+    return res.status(400).send(`Please login to create a new palette.`);
+  const response = await getArrayOfPalettes(user.savedPalettes);
+  if (!response)
+    return res.status(400).json({ message: "No palettes to show." });
+  return res.json(response);
+};
 
-const getPalette = async (name) => {
-  const response = await palettes.findOne({ name: name });
+export const getPalette = async (name) => {
+  return await palettes.findOne({ name: name });
+};
+
+export const getArrayOfPalettes = async (list) => {
+  const response = Promise.all(
+    list.map((id) => {
+      return palettes.findOne({ _id: id });
+    })
+  );
   return response;
+};
+
+export const getTotalPalettes = async (req, res) =>
+  res.json(await palettes.find());
+
+export const searchPalette = async (req, res) => {
+  if (!req.body.text) {
+    res.status(400).send("Please enter a name or a tag to search a palette.");
+  }
+  const text = req.body.text.toLowerCase();
+  const response = await palettes.find();
+  const searched = response.filter((palette) => {
+    if (palette.name.toLowerCase().includes(text)) {
+      return palette;
+    }
+  });
+  res.json(searched);
 };
